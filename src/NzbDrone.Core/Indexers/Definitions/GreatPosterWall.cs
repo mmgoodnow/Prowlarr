@@ -169,7 +169,7 @@ public class GreatPosterWallParser : GazelleParser
             foreach (var torrent in result.Torrents)
             {
                 // skip releases that cannot be used with freeleech tokens when the option is enabled
-                if (_settings.UseFreeleechToken && !torrent.CanUseToken)
+                if (_settings.UseFreeleechToken is (int)GazelleUseFreeleechTokens.Preferred or (int)GazelleUseFreeleechTokens.Required && !torrent.CanUseToken)
                 {
                     continue;
                 }
@@ -240,7 +240,7 @@ public class GreatPosterWallParser : GazelleParser
             .AddQueryParam("action", "download")
             .AddQueryParam("id", torrentId);
 
-        if (_settings.UseFreeleechToken && canUseToken)
+        if (_settings.UseFreeleechToken is (int)GazelleUseFreeleechTokens.Preferred or (int)GazelleUseFreeleechTokens.Required && canUseToken)
         {
             url = url.AddQueryParam("usetoken", "1");
         }

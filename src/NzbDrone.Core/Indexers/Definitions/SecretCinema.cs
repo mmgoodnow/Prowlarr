@@ -226,7 +226,7 @@ public class SecretCinemaParser : IParseIndexerResponse
             .AddQueryParam("action", "download")
             .AddQueryParam("id", torrentId);
 
-        if (_settings.UseFreeleechToken)
+        if (_settings.UseFreeleechToken is (int)GazelleUseFreeleechTokens.Preferred or (int)GazelleUseFreeleechTokens.Required)
         {
             url = url.AddQueryParam("useToken", "1");
         }
