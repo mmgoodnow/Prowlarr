@@ -337,9 +337,11 @@ namespace NzbDrone.Core.Indexers.Definitions.Cardigann
                         variables[name] = selected.Key;
                         break;
                     case "info":
-                        variables[name] = value;
-                        break;
+                    case "info_cookie":
+                    case "info_flaresolverr":
+                    case "info_useragent":
                     case "cardigannCaptcha":
+                        // no-op
                         break;
                     default:
                         throw new NotSupportedException($"Type {setting.Type} is not supported.");
