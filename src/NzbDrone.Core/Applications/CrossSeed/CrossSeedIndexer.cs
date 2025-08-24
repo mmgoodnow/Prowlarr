@@ -18,4 +18,5 @@ namespace NzbDrone.Core.Applications.CrossSeed
 
         [JsonProperty("active")]
         public bool Active { get; set; }
+    }
 }

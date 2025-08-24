@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
+using FluentValidation.Results;
 using NLog;
 using NzbDrone.Common.Http;
 using NzbDrone.Common.Serializer;
@@ -15,6 +17,7 @@ namespace NzbDrone.Core.Applications.CrossSeed
         CrossSeedIndexer UpdateIndexer(CrossSeedIndexer indexer, CrossSeedSettings settings);
         void RemoveIndexer(int id, CrossSeedSettings settings);
         CrossSeedTestResult TestIndexer(CrossSeedIndexer indexer, CrossSeedSettings settings);
+        ValidationFailure TestConnection(CrossSeedSettings settings);
     }
 
     public class CrossSeedProxy : ICrossSeedProxy
@@ -75,6 +78,39 @@ namespace NzbDrone.Core.Applications.CrossSeed
 
             request.SetContent(testPayload.ToJson());
             return Execute<CrossSeedTestResult>(request);
+        }
+
+        public ValidationFailure TestConnection(CrossSeedSettings settings)
+        {
+            try
+            {
+                var status = GetStatus(settings);
+                _logger.Debug("Successfully connected to cross-seed. Version: {0}", status.Version);
+                return null;
+            }
+            catch (HttpException ex)
+            {
+                switch (ex.Response.StatusCode)
+                {
+                    case HttpStatusCode.Unauthorized:
+                        _logger.Warn(ex, "API Key is invalid");
+                        return new ValidationFailure("ApiKey", "API Key is invalid");
+                    case HttpStatusCode.BadRequest:
+                        _logger.Warn(ex, "Prowlarr URL is invalid");
+                        return new ValidationFailure("ProwlarrUrl", "Prowlarr URL is invalid, cross-seed cannot connect to Prowlarr");
+                    case HttpStatusCode.NotFound:
+                        _logger.Warn(ex, "cross-seed indexer management API not found - make sure cross-seed supports Prowlarr integration");
+                        return new ValidationFailure("BaseUrl", "cross-seed indexer management API not found. Please ensure you're running cross-seed v7+ that supports Prowlarr integration.");
+                    default:
+                        _logger.Warn(ex, "Unable to complete application test");
+                        return new ValidationFailure("BaseUrl", $"Unable to complete application test, cannot connect to cross-seed. {ex.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn(ex, "Unable to complete application test");
+                return new ValidationFailure("BaseUrl", $"Unable to complete application test, cannot connect to cross-seed. {ex.Message}");
+            }
         }
 
         private HttpRequest BuildRequest(CrossSeedSettings settings, string resource, HttpMethod method)

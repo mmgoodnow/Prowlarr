@@ -1,11 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
 using FluentValidation.Results;
 using NLog;
 using NzbDrone.Common.Extensions;
-using NzbDrone.Common.Http;
 using NzbDrone.Core.Configuration;
 using NzbDrone.Core.Indexers;
 
@@ -31,30 +29,7 @@ namespace NzbDrone.Core.Applications.CrossSeed
 
             try
             {
-                var status = _crossSeedProxy.GetStatus(Settings);
-                _logger.Info("Successfully connected to cross-seed. Version: {0}", status.Version);
-            }
-            catch (HttpException ex)
-            {
-                switch (ex.Response.StatusCode)
-                {
-                    case HttpStatusCode.Unauthorized:
-                        _logger.Warn(ex, "API Key is invalid");
-                        failures.AddIfNotNull(new ValidationFailure("ApiKey", "API Key is invalid"));
-                        break;
-                    case HttpStatusCode.BadRequest:
-                        _logger.Warn(ex, "Prowlarr URL is invalid");
-                        failures.AddIfNotNull(new ValidationFailure("ProwlarrUrl", "Prowlarr URL is invalid, cross-seed cannot connect to Prowlarr"));
-                        break;
-                    case HttpStatusCode.NotFound:
-                        _logger.Warn(ex, "cross-seed indexer management API not found - make sure cross-seed supports Prowlarr integration");
-                        failures.AddIfNotNull(new ValidationFailure("BaseUrl", "cross-seed indexer management API not found. Please ensure you're running cross-seed v7+ that supports Prowlarr integration."));
-                        break;
-                    default:
-                        _logger.Warn(ex, "Unable to complete application test");
-                        failures.AddIfNotNull(new ValidationFailure("BaseUrl", $"Unable to complete application test, cannot connect to cross-seed. {ex.Message}"));
-                        break;
-                }
+                failures.AddIfNotNull(_crossSeedProxy.TestConnection(Settings));
             }
             catch (Exception ex)
             {
