@@ -84,8 +84,14 @@ namespace NzbDrone.Core.Applications.CrossSeed
         {
             try
             {
+                // Step 1: Test basic connectivity and API key
                 var status = GetStatus(settings);
                 _logger.Debug("Successfully connected to cross-seed. Version: {0}", status.Version);
+                
+                // Step 2: Test indexer list access (verifies permissions)
+                GetIndexers(settings);
+                _logger.Debug("Successfully accessed cross-seed indexer list");
+                
                 return null;
             }
             catch (HttpException ex)
