@@ -16,7 +16,6 @@ namespace NzbDrone.Core.Applications.CrossSeed
         CrossSeedIndexer AddIndexer(CrossSeedIndexer indexer, CrossSeedSettings settings);
         CrossSeedIndexer UpdateIndexer(CrossSeedIndexer indexer, CrossSeedSettings settings);
         void RemoveIndexer(int id, CrossSeedSettings settings);
-        CrossSeedTestResult TestIndexer(CrossSeedIndexer indexer, CrossSeedSettings settings);
         ValidationFailure TestConnection(CrossSeedSettings settings);
     }
 
@@ -65,20 +64,6 @@ namespace NzbDrone.Core.Applications.CrossSeed
             Execute<object>(request);
         }
 
-        public CrossSeedTestResult TestIndexer(CrossSeedIndexer indexer, CrossSeedSettings settings)
-        {
-            var request = BuildRequest(settings, $"{AppApiRoute}/test", HttpMethod.Post);
-
-            var testPayload = new
-            {
-                url = indexer.Url,
-                apikey = indexer.ApiKey,
-                id = indexer.Id > 0 ? indexer.Id : (int?)null
-            };
-
-            request.SetContent(testPayload.ToJson());
-            return Execute<CrossSeedTestResult>(request);
-        }
 
         public ValidationFailure TestConnection(CrossSeedSettings settings)
         {
