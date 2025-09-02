@@ -18,5 +18,21 @@ namespace NzbDrone.Core.Applications.CrossSeed
 
         [JsonProperty("active")]
         public bool Active { get; set; }
+
+        [JsonProperty("enabled")]
+        public bool Enabled { get; set; }
+
+        public bool Equals(CrossSeedIndexer other)
+        {
+            if (ReferenceEquals(null, other))
+            {
+                return false;
+            }
+
+            return other.Name == Name &&
+                other.Url == Url &&
+                other.ApiKey == ApiKey &&
+                other.Enabled == Enabled;
+        }
     }
 }

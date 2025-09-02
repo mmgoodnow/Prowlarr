@@ -13,6 +13,7 @@ namespace NzbDrone.Core.Applications.CrossSeed
     {
         CrossSeedStatus GetStatus(CrossSeedSettings settings);
         List<CrossSeedIndexer> GetIndexers(CrossSeedSettings settings);
+        CrossSeedIndexer GetIndexer(int id, CrossSeedSettings settings);
         CrossSeedIndexer AddIndexer(CrossSeedIndexer indexer, CrossSeedSettings settings);
         CrossSeedIndexer UpdateIndexer(CrossSeedIndexer indexer, CrossSeedSettings settings);
         void RemoveIndexer(int id, CrossSeedSettings settings);
@@ -40,8 +41,14 @@ namespace NzbDrone.Core.Applications.CrossSeed
 
         public List<CrossSeedIndexer> GetIndexers(CrossSeedSettings settings)
         {
-            var request = BuildRequest(settings, AppApiRoute + "?includeInactive=true", HttpMethod.Get);
+            var request = BuildRequest(settings, AppApiRoute, HttpMethod.Get);
             return Execute<List<CrossSeedIndexer>>(request);
+        }
+
+        public CrossSeedIndexer GetIndexer(int id, CrossSeedSettings settings)
+        {
+            var request = BuildRequest(settings, $"{AppApiRoute}/{id}", HttpMethod.Get);
+            return Execute<CrossSeedIndexer>(request);
         }
 
         public CrossSeedIndexer AddIndexer(CrossSeedIndexer indexer, CrossSeedSettings settings)

@@ -42,80 +42,22 @@ namespace NzbDrone.Core.Applications.CrossSeed
 
         public override List<AppIndexerMap> GetIndexerMappings()
         {
-            _logger.Debug("CrossSeed: Getting indexer mappings...");
-            
-            // Get existing mappings from Prowlarr's database
-            var existingMappings = _appIndexerMapService.GetMappingsForApp(Definition.Id);
-            _logger.Debug("CrossSeed: Found {0} existing mappings in database", existingMappings.Count);
-            
-            // Get ALL indexers from cross-seed (including inactive ones)
-            var allIndexers = _crossSeedProxy.GetIndexers(Settings);
-            _logger.Debug("CrossSeed: Found {0} total indexers in cross-seed", allIndexers.Count);
-            
+            var indexers = _crossSeedProxy.GetIndexers(Settings);
+
             var mappings = new List<AppIndexerMap>();
 
-            // Only return remote indexers that have corresponding mappings in Prowlarr's database
-            // This implements the "mapping hack" - disabled indexers (have mappings) are returned,
-            // but deleted indexers (no mappings) are filtered out
-            foreach (var mapping in existingMappings)
+            foreach (var indexer in indexers)
             {
-                var remoteIndexer = allIndexers.FirstOrDefault(i => i.Id == mapping.RemoteIndexerId);
-                if (remoteIndexer != null)
+                if (indexer.ApiKey == _configFileProvider.ApiKey)
                 {
-                    // Validate mapping integrity by checking if URL has correct tail pattern
-                    var expectedTail = $"/{mapping.IndexerId}/api";
-                    if (!remoteIndexer.Url.EndsWith(expectedTail))
+                    if (TryExtractIndexerIdFromUrl(indexer.Url, out var indexerId))
                     {
-                        _logger.Warn("CrossSeed: Mapping corruption detected! Prowlarr ID {0} -> cross-seed ID {1} has URL '{2}' but expected tail '{3}'. Attempting URL-based fallback...", 
-                            mapping.IndexerId, mapping.RemoteIndexerId, remoteIndexer.Url, expectedTail);
-                        
-                        // Try to find indexer by URL tail pattern instead of ID (fallback)
-                        var correctIndexer = allIndexers.FirstOrDefault(i => i.Url.EndsWith(expectedTail));
-                        if (correctIndexer != null)
-                        {
-                            _logger.Info("CrossSeed: URL fallback successful! Correcting mapping: Prowlarr ID {0} -> cross-seed ID {1} (was {2})", 
-                                mapping.IndexerId, correctIndexer.Id, mapping.RemoteIndexerId);
-                            
-                            // Update the mapping in database to fix corruption
-                            var updatedMapping = new AppIndexerMap
-                            {
-                                Id = mapping.Id,
-                                AppId = mapping.AppId,
-                                IndexerId = mapping.IndexerId,
-                                RemoteIndexerId = correctIndexer.Id,
-                                RemoteIndexerName = correctIndexer.Name
-                            };
-                            _appIndexerMapService.Update(updatedMapping);
-                            
-                            mappings.Add(updatedMapping);
-                        }
-                        else
-                        {
-                            _logger.Error("CrossSeed: URL fallback failed! No indexer found with expected tail '{0}'. Mapping will be excluded from sync.", expectedTail);
-                        }
+                        // Add parsed mapping if it's mapped to an Indexer in this Prowlarr instance
+                        mappings.Add(new AppIndexerMap { IndexerId = indexerId, RemoteIndexerId = indexer.Id, RemoteIndexerName = indexer.Name });
                     }
-                    else
-                    {
-                        // Mapping is valid
-                        _logger.Debug("CrossSeed: Including mapped indexer: Prowlarr ID {0} -> cross-seed ID {1} ({2}) [Active: {3}]", 
-                            mapping.IndexerId, remoteIndexer.Id, remoteIndexer.Name, remoteIndexer.Active);
-                        
-                        mappings.Add(new AppIndexerMap
-                        {
-                            IndexerId = mapping.IndexerId,
-                            RemoteIndexerId = remoteIndexer.Id,
-                            RemoteIndexerName = remoteIndexer.Name
-                        });
-                    }
-                }
-                else
-                {
-                    _logger.Debug("CrossSeed: Mapped indexer not found in remote: Prowlarr ID {0} -> cross-seed ID {1}", 
-                        mapping.IndexerId, mapping.RemoteIndexerId);
                 }
             }
 
-            _logger.Debug("CrossSeed: Returning {0} filtered mappings (disabled indexers included, deleted ones excluded)", mappings.Count);
             return mappings;
         }
 
@@ -159,11 +101,9 @@ namespace NzbDrone.Core.Applications.CrossSeed
 
             try
             {
-                // cross-seed POST now handles upserts automatically - no need for conflict handling
                 var addedIndexer = _crossSeedProxy.AddIndexer(crossSeedIndexer, Settings);
-                _logger.Info("Added/updated indexer {0} in cross-seed with ID {1}", indexer.Name, addedIndexer.Id);
+                _logger.Debug("Added indexer {0} in cross-seed with ID {1}", indexer.Name, addedIndexer.Id);
                 
-                // Create mapping in Prowlarr's database (like other applications do)
                 _appIndexerMapService.Insert(new AppIndexerMap 
                 { 
                     AppId = Definition.Id, 
@@ -174,22 +114,11 @@ namespace NzbDrone.Core.Applications.CrossSeed
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "Failed to add indexer {0} to cross-seed", indexer.Name);
+                _logger.Debug("Failed to add {0} [{1}]", indexer.Name, indexer.Id);
                 throw;
             }
         }
 
-        private string BuildExpectedUrl(IndexerDefinition indexer)
-        {
-            var prowlarrUrl = Settings.ProwlarrUrl?.TrimEnd('/') ?? _configFileProvider.UrlBase?.TrimEnd('/') ?? "http://localhost:9696";
-            return $"{prowlarrUrl}/{indexer.Id}/api";
-        }
-
-        private string BuildExpectedUrl(int indexerId)
-        {
-            var prowlarrUrl = Settings.ProwlarrUrl?.TrimEnd('/') ?? _configFileProvider.UrlBase?.TrimEnd('/') ?? "http://localhost:9696";
-            return $"{prowlarrUrl}/{indexerId}/api";
-        }
 
         public override void UpdateIndexer(IndexerDefinition indexer, bool forceSync = false)
         {
@@ -199,10 +128,12 @@ namespace NzbDrone.Core.Applications.CrossSeed
                 return;
             }
 
-            var mappings = GetIndexerMappings();
-            var mapping = mappings.FirstOrDefault(m => m.IndexerId == indexer.Id);
+            _logger.Debug("Updating indexer {0} [{1}]", indexer.Name, indexer.Id);
 
-            if (mapping == null)
+            var appMappings = _appIndexerMapService.GetMappingsForApp(Definition.Id);
+            var indexerMapping = appMappings.FirstOrDefault(m => m.IndexerId == indexer.Id);
+
+            if (indexerMapping == null)
             {
                 _logger.Debug("No existing mapping found for indexer {0}, adding as new", indexer.Name);
                 AddIndexer(indexer);
@@ -210,23 +141,42 @@ namespace NzbDrone.Core.Applications.CrossSeed
             }
 
             var crossSeedIndexer = BuildCrossSeedIndexer(indexer);
-            crossSeedIndexer.Id = mapping.RemoteIndexerId;
+            crossSeedIndexer.Id = indexerMapping.RemoteIndexerId;
 
             try
             {
-                var updatedIndexer = _crossSeedProxy.UpdateIndexer(crossSeedIndexer, Settings);
-                _logger.Info("Updated indexer {0} in cross-seed (ID: {1})", indexer.Name, updatedIndexer.Id);
+                var remoteIndexer = _crossSeedProxy.GetIndexer(indexerMapping.RemoteIndexerId, Settings);
+                if (remoteIndexer != null)
+                {
+                    _logger.Debug("Remote indexer {0} [{1}] found", remoteIndexer.Name, remoteIndexer.Id);
+
+                    if (!crossSeedIndexer.Equals(remoteIndexer) || forceSync)
+                    {
+                        _logger.Debug("Syncing remote indexer with current settings");
+                        var updatedIndexer = _crossSeedProxy.UpdateIndexer(crossSeedIndexer, Settings);
+                    }
+                }
+                else
+                {
+                    _logger.Debug("Remote indexer not found, re-adding {0} [{1}] to cross-seed", indexer.Name, indexer.Id);
+                    _appIndexerMapService.Delete(indexerMapping.Id);
+                    AddIndexer(indexer);
+                }
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "Failed to update indexer {0} in cross-seed", indexer.Name);
-                throw;
+                _logger.Debug(ex, "Failed to update indexer {0} in cross-seed", indexer.Name);
+                
+                // If update fails, the remote indexer might not exist anymore
+                // Delete the mapping and re-add the indexer
+                _logger.Debug("Update failed, removing stale mapping and re-adding indexer {0}", indexer.Name);
+                _appIndexerMapService.Delete(indexerMapping.Id);
+                AddIndexer(indexer);
             }
         }
 
         public override void RemoveIndexer(int indexerId)
         {
-            // Use database mappings directly (like other applications do)
             var appMappings = _appIndexerMapService.GetMappingsForApp(Definition.Id);
             var indexerMapping = appMappings.FirstOrDefault(m => m.IndexerId == indexerId);
             
@@ -234,17 +184,14 @@ namespace NzbDrone.Core.Applications.CrossSeed
             {
                 try
                 {
-                    // Call cross-seed DELETE endpoint - it will soft delete (set active=false) internally
-                    // This preserves cache data while making the indexer inactive
                     _crossSeedProxy.RemoveIndexer(indexerMapping.RemoteIndexerId, Settings);
-                    _logger.Info("Soft deleted indexer {0} in cross-seed (remote ID: {1}) - cache data preserved", indexerId, indexerMapping.RemoteIndexerId);
-
-                    // Clean up the mapping from Prowlarr's database (like other applications do)
+                    _logger.Debug("Removed indexer {0} from cross-seed (remote ID: {1})", indexerId, indexerMapping.RemoteIndexerId);
+                    
                     _appIndexerMapService.Delete(indexerMapping.Id);
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error(ex, "Failed to remove indexer {0} from cross-seed", indexerId);
+                    _logger.Debug(ex, "Failed to remove indexer {0} from cross-seed", indexerId);
                     throw;
                 }
             }
@@ -263,7 +210,7 @@ namespace NzbDrone.Core.Applications.CrossSeed
                 Name = indexer.Name,
                 Url = $"{prowlarrUrl}/{indexer.Id}/api",
                 ApiKey = _configFileProvider.ApiKey,
-                Active = indexer.Enable && (indexer.AppProfile?.Value?.EnableRss ?? true)
+                Enabled = indexer.Enable && (indexer.AppProfile?.Value?.EnableRss ?? true)
             };
         }
     }
